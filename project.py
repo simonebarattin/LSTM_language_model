@@ -8,6 +8,8 @@ TRAIN_DATA_PATH = "ptbdataset/ptb.train.txt"
 VAL_DATA_PATH = "ptbdataset/ptb.valid.txt"
 TEST_DATA_PATH = "ptbdataset/ptb.test.txt"
 
+save_path = "best_model.pth"
+
 def load_data_tokenize(path):
     tokens = []
     with open(path, 'r') as f:
@@ -42,39 +44,46 @@ class Vocabulary():
     def __len__(self):
         return len(self.idx2word)
 
-class Dataset(data.Dataset):
-    def __init__(self, vocab, tokens, batch_size, seq_len) -> None:
+# data usage from https://github.com/yunjey/pytorch-tutorial/blob/master/tutorials/02-intermediate/language_model/data_utils.py
+class Dataset():
+    def __init__(self, vocab, tokens, batch_size) -> None:
         super(Dataset, self).__init__()
         self.idx2word = vocab.idx2word
         self.word2idx = vocab.word2idx
         self.batch_size = batch_size
-        self.seq_len = seq_len
         self.tokens = tokens
-        self.num_tokens = []
-        for t in self.tokens:
-            self.num_tokens.append(self.word2idx[t])
+        self.data = torch.LongTensor(len(tokens))
+        for count, t in enumerate(self.tokens):
+            self.data[count] = self.word2idx[t]
+        num_batches = self.data.size(0) // batch_size
+        self.data = self.data[:num_batches*batch_size]
+        self.data = self.data.view(batch_size, -1)
 
-        self.data, self.targets = self.batchify(self.num_tokens, seq_len, batch_size)
-        print(len(self.data))
-
-    def __len__(self):
-        return len(self.tokens)
-    
-    def __getitem__(self, idx):
-        return self.data[idx], self.targets[idx]
-
-    def batchify(self, tokens, seq_len, batch_size):
-        n_batches = len(tokens) // batch_size
-        x, y = [], []
-        tokens = tokens[:n_batches*batch_size]
-
-        for idx in range(0, len(tokens)-seq_len):
-            end = idx + seq_len
-            batched_data = tokens[idx:end]
-            x.append(batched_data)
-            y.append(tokens[end])
+    def get_batch(self, idx, seq_len):
+        x = self.data[:, idx:idx+seq_len]
+        y = self.data[:, idx+1:idx+seq_len+1]
+        return x, y
+        # self.data, self.targets = self.batchify(self.num_tokens, seq_len, batch_size)
         
-        return torch.tensor(x), torch.tensor(y)
+
+    # def __len__(self):
+    #     return len(self.tokens)
+    
+    # def __getitem__(self, idx):
+    #     return self.data[idx], self.targets[idx]
+
+    # def batchify(self, tokens, seq_len, batch_size):
+    #     n_batches = len(tokens) // batch_size
+    #     x, y = [], []
+    #     tokens = tokens[:n_batches*batch_size]
+
+    #     for idx in range(0, len(tokens)-seq_len):
+    #         end = idx + seq_len
+    #         batched_data = tokens[idx:end]
+    #         x.append(batched_data)
+    #         y.append(tokens[end])
+        
+    #     return torch.tensor(x), torch.tensor(y)
 
 class LSTMModel(nn.Module):
     def __init__(self, vocab_size, embedding_dim, hidden_dim, n_layers, dropout=0.5):
@@ -173,17 +182,23 @@ vocab.add2vocab("<unk>")
 vocab.add2vocab("<eos>")
 vocab.process_tokens(train_tokens)
 
-train_x, train_y = batchify(vocab, train_tokens, seq_len, batch_size)
-train_dataset = data.TensorDataset(train_x, train_y)
-train_loader = data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+# train_x, train_y = batchify(vocab, train_tokens, seq_len, batch_size)
+# train_dataset = data.TensorDataset(train_x, train_y)
+# train_loader = data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-val_x, val_y = batchify(vocab, val_tokens, seq_len, batch_size)
-val_dataset = data.TensorDataset(val_x, val_y)
-val_loader = data.DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+# val_x, val_y = batchify(vocab, val_tokens, seq_len, batch_size)
+# val_dataset = data.TensorDataset(val_x, val_y)
+# val_loader = data.DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-test_x, test_y = batchify(vocab, test_tokens, seq_len, batch_size)
-test_dataset = data.TensorDataset(test_x, test_y)
-test_loader = data.DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False)
+# test_x, test_y = batchify(vocab, test_tokens, seq_len, batch_size)
+# test_dataset = data.TensorDataset(test_x, test_y)
+# test_loader = data.DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False)
+
+##################### TEST NOT DATALOADER #####################
+train_ids = Dataset(vocab, train_tokens, batch_size)
+val_ids = Dataset(vocab, val_tokens, batch_size)
+test_ids = Dataset(vocab, test_tokens, test_batch_size)
+##############################################################
 
 model = LSTMModel(len(vocab), embedding_dimension, hidden_dimension, n_layers, dropout).to(device)
 model.apply(init_weights)
@@ -192,12 +207,15 @@ optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 criterion = nn.CrossEntropyLoss()
 lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=0)
 
+best_ppl = float('inf')
 for epoch in range(epochs):
     hidden = model.init_hidden(batch_size)
     losses = []
     ppl = []
     model.train()
-    for batch_idx, (x,y) in enumerate(tqdm(train_loader)):
+    # for batch_idx, (x,y) in enumerate(tqdm(train_loader)):
+    for i in range(0, train_ids.size(1) - seq_len, seq_len):
+        x, y = train_ids.get_batch(i, seq_len)
         x = x.to(device)
         y = y.to(device)
         h = tuple([each.data for each in hidden])
@@ -222,16 +240,23 @@ for epoch in range(epochs):
     ppl = []
     model.eval()
     with torch.no_grad():
-        for batch_idx, (x,y) in enumerate(tqdm(val_loader)):
+        # for batch_idx, (x,y) in enumerate(tqdm(val_loader)):
+        for i in range(0, val_ids.size(1) - seq_len, seq_len):
+            x, y = val_ids.get_batch(i, seq_len)
             x = x.to(device)
             y = y.to(device)
             h = tuple([each.data for each in hidden])
 
             output, h = model(x, h)
+            output = output.reshape(batch_size * seq_len, -1)
+            y = y.reshape(-1)
 
             loss = criterion(output, y)
             losses.append(loss.item())
             ppl.append(np.exp(loss.item()))
         print(f"Validation epoch {epoch}")
         print(f"\tLoss: {np.mean(losses)}, PPL: {np.exp(np.mean(losses))}, PPL per word: {np.mean(ppl)}")
+        if np.exp(np.mean(losses)) < best_ppl:
+            print(f"Save model at epoch {epoch} with best perplexity {np.exp(np.mean(losses))}")
+            save_model(model, save_path)
     
