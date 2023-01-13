@@ -75,7 +75,7 @@ class Dataset():
         y = self.data[idx+1:idx+seq_len+1]
         return x, y
 
-# DropConnect on recurrent hidden to hidden weight matrices
+# DropConnect on recurrent hidden to hidden weight matrices https://github.com/salesforce/awd-lstm-lm
 class WeightDrop(nn.Module):
     def __init__(self, module, weights, dropout):
         super(WeightDrop, self).__init__()
@@ -100,7 +100,7 @@ class WeightDrop(nn.Module):
         self._setweight()
         return self.module.forward(*args)
 
-# uses a unique dropout mask for different samples, which stays the same within the forward and backward pass
+# uses a unique dropout mask for different samples, which stays the same within the forward and backward pass https://github.com/salesforce/awd-lstm-lm
 class LockedDropout(nn.Module):
     def __init__(self):
         super(LockedDropout, self).__init__()
@@ -115,6 +115,7 @@ class LockedDropout(nn.Module):
         else:
             return x
 
+# https://github.com/salesforce/awd-lstm-lm
 class EmbeddDropout(nn.Module):
     def __init__(self, dropout):
         super(EmbeddDropout, self).__init__()
@@ -130,7 +131,7 @@ class EmbeddDropout(nn.Module):
         return x
 
 class LSTMModel(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, hidden_dim, n_layers, dropout, dropoute, dropoutw, dropouti, dropouth, tweights=True):
+    def __init__(self, vocab_size, embedding_dim, hidden_dim, n_layers, dropout, dropoute, dropoutw, dropouti, dropouth, tweights=True, attention=False):
         super(LSTMModel, self).__init__()
         self.vocab_size = vocab_size 
         self.vocab_size = vocab_size
@@ -138,6 +139,7 @@ class LSTMModel(nn.Module):
         self.embedding_dim = embedding_dim
         self.n_layers = n_layers
         self.tweights = tweights
+        self.attention = attention
 
         self.dropoute = dropoute
         self.dropouti = dropouti
@@ -157,6 +159,8 @@ class LSTMModel(nn.Module):
         self.lstm = [WeightDrop(lstm, ["weight_hh_l0"], dropoutw) for lstm in lstms]
         self.lstm = nn.ModuleList(self.lstm)
         self.fc = nn.Linear(hidden_dim, vocab_size)
+        self.attention_fc = nn.Linear(((self.n_layers-1)*self.hidden_dim+self.embedding_dim)*2, vocab_size)
+        self.att1 = nn.Linear()
 
         if self.tweights:
             self.fc.weight = self.embedding.weight
@@ -183,21 +187,37 @@ class LSTMModel(nn.Module):
         x = self.edrop(self.embedding, x, self.training)
         x = self.lockeddrop(x, self.dropouti, self.training)
 
-        new_h = []
+        new_h, hid, cont = [], [], []
         for i in range(self.n_layers):
             out, h = self.lstm[i](x, hidden[i])
+            hid.append(h[0].squeeze(0))
             new_h.append(h)
             x = out
             if i != n_layers-1:
                 out = self.lockeddrop(out, self.dropouth, self.training)
-                # out = out.contiguous().view(-1, self.hidden_dim)
-        # out, (final_hidden, cells) = self.lstm(x, hidden)
-        # out = out.contiguous().view(-1, self.hidden_dim)
-        # out = self.dropout(out)
+            if self.attention:
+                weights = torch.bmm(out.permute(1,0,2), h[0].permute(1,2,0)).squeeze(-1)
+                print(weights.shape)
+                sw = torch.nn.functional.softmax(weights, 1)
+                print(sw.shape)
+                context = torch.bmm(out.permute(1,2,0), sw.unsqueeze(-1)).squeeze(-1)
+                print(context.shape)
+                cont.append(context)
+        if self.attention:
+            hid = torch.cat(hid, 1)
+            print(hid.shape)
+            cont = torch.cat(cont, 1)
+            print(cont.shape)
+            combined = torch.cat((hid, cont), 1)
+            print(combined.shape)
+            quit()
+            out = self.attention_fc(combined)
+            return out, new_h
         out = self.lockeddrop(out, self.dropout, self.training)
+        print(out.shape)
+        quit()
         out = out.view(out.size(0)*out.size(1), out.size(2))
         out = self.fc(out)
-        # out = out.view(b_s, -1, self.vocab_size)
 
         return out, new_h
 
@@ -305,7 +325,7 @@ val_ids = Dataset(vocab, val_tokens, batch_size)
 test_ids = Dataset(vocab, test_tokens, test_batch_size)
 ##############################################################
 
-model = LSTMModel(len(vocab), embedding_dimension, hidden_dimension, n_layers, dropout, dropout_emb, dropout_wgt, dropout_inp, dropout_hid).to(device)
+model = LSTMModel(len(vocab), embedding_dimension, hidden_dimension, n_layers, dropout, dropout_emb, dropout_wgt, dropout_inp, dropout_hid, attention=True).to(device)
 # model.apply(init_weights)
 
 optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay) # following paper we use SGD without momentum
@@ -317,7 +337,6 @@ writer = SummaryWriter()
 
 best_ppl = float('inf')
 for epoch in range(epochs):
-    break
     hidden = model.init_hidden(batch_size)
     losses = []
     ppls = []
@@ -330,6 +349,7 @@ for epoch in range(epochs):
     # for i in tqdm(rnd_idxs):
     # for i in tqdm(range(0, train_ids.data.size(1) - seq_len, seq_len)):
     batch, i = 0, 0
+    # use while since bptt changes at each step
     while i < train_ids.data.size(0) -1 -1:
         # following the paper, sample different sequence lengths in order to learn throughout all the corpus
         bptt = max(std, int(np.random.normal(mu, std)))
@@ -341,7 +361,7 @@ for epoch in range(epochs):
             break
         x = x.to(device)
         y = y.to(device)
-        h = detach_hidden(hidden)#tuple([each.data for each in hidden])
+        h = detach_hidden(hidden)
 
         optimizer.zero_grad()
         output, h = model(x, h)
@@ -425,7 +445,6 @@ ppls = []
 model.eval()
 with torch.no_grad():
     for i in tqdm(range(0, test_ids.data.size(0) - seq_len, seq_len)):
-        break
         x, y = test_ids.get_batch(i, seq_len)
         x = x.to(device)
         y = y.to(device)
@@ -457,14 +476,13 @@ def generate(prompt, max_seq_len, temperature, model, vocab, device, seed=None):
     model.eval()
     tokens = prompt.split()
     indices = [vocab.word2idx[t] for t in tokens]
-    inp = torch.LongTensor([[indices[0]]]).to(device)
+    inp = torch.LongTensor([indices]).to(device)
     batch_size = 1
     hidden = model.init_hidden(batch_size)
     with torch.no_grad():
         for i in range(max_seq_len):
-            # src = torch.LongTensor([indices]).to(device)
             prediction, hidden = model(inp, hidden)
-            probs = torch.softmax(prediction[:, -1] / temperature, dim=-1)  
+            probs = prediction.squeeze().data.div(temperature).exp()
             prediction = torch.multinomial(probs, num_samples=1).item()
             
             while prediction == vocab.word2idx['<unk>']:
@@ -472,7 +490,7 @@ def generate(prompt, max_seq_len, temperature, model, vocab, device, seed=None):
 
             if prediction == vocab.word2idx['<eos>']:
                 break
-
+            
             indices.append(prediction)
             inp.data.fill_(prediction)
 
