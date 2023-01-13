@@ -54,7 +54,7 @@ def train(train_ids, model, optimizer, criterion, lr, batch_size, seq_len, seq_l
     return cur_loss, cur_ppl
 
 def valid(valid_ids, model, criterion, batch_size, seq_len, w_b, use_cuda, epoch):
-    hidden = model.init_hidden(batch_size)
+    hidden = model.init_hidden(batch_size, use_cuda)
     losses = []
     ppls = []
     model.eval()
