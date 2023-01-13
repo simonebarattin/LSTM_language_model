@@ -1,3 +1,7 @@
+import sys
+sys.path.append('.')
+sys.path.append('..')
+
 import torch
 import argparse
 import numpy as np
@@ -5,7 +9,7 @@ import os.path as osp
 import torch.nn as nn
 from lib import *
 from models import *
-from .utils import load_data_tokenize, detach_hidden
+from utils import load_data_tokenize, detach_hidden
 
 def evaluate():
     '''
