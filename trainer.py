@@ -3,6 +3,7 @@ import random
 import numpy as np
 import torch.nn as nn
 from utils import detach_hidden
+from models import *
 
 def train(train_ids, model, optimizer, criterion, lr, batch_size, seq_len, seq_len_threshold, w_b, use_cuda, clip_grad, epoch):
     hidden = model.init_hidden(batch_size, use_cuda)
@@ -17,9 +18,12 @@ def train(train_ids, model, optimizer, criterion, lr, batch_size, seq_len, seq_l
     # use while since bptt changes at each step
     while i < train_ids.data.size(0) -1 -1:
         # following the paper, sample different sequence lengths in order to learn throughout all the corpus
-        bptt = max(std, int(np.random.normal(mu, std)))
-        new_lr = (lr * bptt) / mu
-        optimizer.param_groups[0]['lr'] = new_lr
+        if isinstance(model, AWDLSTM):
+            bptt = max(std, int(np.random.normal(mu, std)))
+            new_lr = (lr * bptt) / mu
+            optimizer.param_groups[0]['lr'] = new_lr
+        else:
+            bptt = seq_len
 
         x, y = train_ids.get_batch(i, bptt)
         if x.shape!=y.shape:
@@ -67,10 +71,8 @@ def valid(valid_ids, model, criterion, batch_size, seq_len, w_b, use_cuda, epoch
             x = x.cuda() if use_cuda else x
             y = y.cuda() if use_cuda else y
             h = detach_hidden(hidden)
-            # h = tuple([each.data for each in hidden])
 
             output, h = model(x, h)
-            # output = output.reshape(batch_size * seq_len, -1)
             y = y.reshape(-1)
 
             loss = criterion(output, y)

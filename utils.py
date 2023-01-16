@@ -18,12 +18,12 @@ def save_model(model, path):
     }, path)
 
 def detach_hidden(hidden):
-    if len(hidden) > 0:
+    if len(hidden) > 2:
         detached = []
         for h in hidden:
             detached.append(tuple([h[0].detach(), h[1].detach()]))
     else:
-        detached = tuple([h[0].detach(), h[1].detach()])
+        detached = tuple([hidden[0].detach(), hidden[1].detach()])
     return detached
 
 def concat_name(model, asgd, clip_gradient, tye_weights, dropout, dropout_emb, dropout_wgt, dropout_inp, dropout_hid):

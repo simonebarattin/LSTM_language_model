@@ -1,3 +1,4 @@
+import os
 import torch
 import argparse
 import os.path as osp
@@ -62,7 +63,8 @@ def main():
     if args.clip_gradient:
         clip_gradient = 0.25
     tye_weights = args.tye_weights
-    asgd = args.asgd
+    use_asgd = args.asgd
+    asgd = False
 
     dropout = args.dropout
     dropout_emb = args.dropout_emb
@@ -79,9 +81,13 @@ def main():
     seq_len = 70
     seq_len_threshold = 0.8
 
-    lr = 30
+    lr_awd = 30
+    lr_vanilla = 0.1
     weight_decay = 1e-6
     patience = 5
+
+    if not osp.exists(BEST_MODEL_PATH):
+        os.makedirs(BEST_MODEL_PATH, exist_ok=True)
 
     ####################################################################################################################
     ##                                                                                                                ##
@@ -117,7 +123,7 @@ def main():
 
     models = []
     if args.baseline:
-        models.append(("vanilla-lstm", VanillaLSTM(len(vocab), embedding_size, hidden_size, n_layers)))
+        models.append(("vanilla-lstm", VanillaLSTM(len(vocab), embedding_size, embedding_size, num_layers=1)))
     if args.awd:
         name = concat_name("awd-lstm",  asgd, args.clip_gradient, tye_weights, dropout, dropout_emb, dropout_wgt, 
                                             dropout_inp, dropout_hid)
@@ -147,6 +153,7 @@ def main():
             print("  \\__Dropout weights: {}".format(dropout_wgt))
 
         model = model.cuda() if use_cuda else model
+        lr = lr_vanilla if isinstance(model, VanillaLSTM) else lr_awd
         optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
 
         if args.wb:
@@ -163,32 +170,32 @@ def main():
             print("\n#. Epoch {}".format(epoch))
             print("  \\__Training...")
             train_loss, train_ppl = train(train_ids, model, optimizer, criterion, lr, train_batch_size, seq_len, seq_len_threshold, w_b, use_cuda, clip_gradient if args.clip_gradient else None, epoch)
-            print("    \\__Loss: {}".format(train_loss))
-            print("    \\__PPL: {}".format(train_ppl))
+            print("     \\__Loss: {}".format(train_loss))
+            print("     \\__PPL: {}".format(train_ppl))
 
             if args.wb: w_b.log({"Training/Average Loss": train_loss, "Training/Average PPL": train_ppl})
 
             print("  \\__Validation...")
             valid_loss, valid_ppl = valid(valid_ids, model, criterion, train_batch_size, seq_len, w_b, use_cuda, epoch)
-            print("    \\__Loss: {}".format(train_loss))
-            print("    \\__PPL: {}".format(train_ppl))
+            print("     \\__Loss: {}".format(valid_loss))
+            print("     \\__PPL: {}".format(valid_ppl))
 
             if args.wb: w_b.log({"Validation/Average Loss": valid_loss, "Validation/Average PPL": valid_ppl})
 
             if valid_ppl < best_ppl:
-                print("      \\__Save model at epoch {} with best perplexity {}".format(epoch, valid_ppl))
+                print("       \\__Save model at epoch {} with best perplexity {}".format(epoch, valid_ppl))
                 save_model(model, osp.join(BEST_MODEL_PATH, "{}.pth".format(name)))
                 best_ppl = valid_ppl
             if valid_loss >= best_loss:
                 patience -= 1
                 best_loss = valid_loss
-                print("      \\__Loss not decreasing... Patience to {}".format(patience))
-                if not asgd:
+                print("       \\__Loss not decreasing... Patience to {}".format(patience))
+                if use_asgd and not asgd:
                     asgd = True
                     optimizer = torch.optim.ASGD(model.parameters(), lr=lr, lambd=0., weight_decay=weight_decay, t0=0)
-                    print("      \\__Switching to ASGD with lr {}".format(lr))
+                    print("       \\__Switching to ASGD with lr {}".format(lr))
                 if patience == 0:
-                    print("      \\__Training stopped due to early stopping!")
+                    print("       \\__Training stopped due to early stopping!")
                     break
             else:
                 best_loss = valid_loss
