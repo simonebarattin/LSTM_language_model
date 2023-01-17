@@ -10,6 +10,7 @@ import torch.nn as nn
 from lib import *
 from models import *
 from utils import load_data_tokenize, detach_hidden
+from sklearn.metrics import f1_score
 
 def evaluate():
     '''
@@ -67,7 +68,7 @@ def evaluate():
     checkpoint = torch.load(osp(BEST_MODEL_PATH, weight_filename))
     model_percs = weight_filename.split('.')[0].split('_')
     if model_percs[0] == "vanilla-lstm":
-        model = VanillaLSTM(len(vocab), embedding_size, hidden_size, n_layers, test_batch_size)
+        model = VanillaLSTM(len(vocab), embedding_size, embedding_size, test_batch_size, num_layers=1)
     else:
         if 'tyeweights' in model_percs:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
@@ -88,6 +89,7 @@ def evaluate():
     hidden = model.init_hidden(test_batch_size)
     losses = []
     ppls = []
+    f1s = []
     model.eval()
     with torch.no_grad():
         for i in range(0, test_ids.data.size(0) - seq_len, seq_len):
@@ -100,6 +102,11 @@ def evaluate():
             output, h = model(x, h)
             # output = output.reshape(test_batch_size * seq_len, -1)
             y = y.reshape(-1)
+            preds = torch.argmax(output, dim=1)
+
+            f1 = f1_score(y, preds.detach().cpu().numpy(), average='micro')
+            f1s.append(f1)
+            
 
             loss = criterion(output, y)
             cur_ppl = np.exp(loss.item())
@@ -109,11 +116,13 @@ def evaluate():
 
         cur_loss = np.mean(losses)
         cur_ppl = np.exp(cur_loss)
+        cur_f1, cur_f1_std = np.mean(f1s), np.std(f1s)
         
-        w_b.log({"Test/Loss": cur_loss, "Tets/PPL": cur_ppl})
+        w_b.log({"Test/Loss": cur_loss, "Test/PPL": cur_ppl, "Test/F1": cur_f1})
 
         print("    \\__Loss: {}".format(cur_loss))
         print("    \\__PPL: {}".format(cur_ppl))
+        print("    \\__F1: {}, std: {}".format(cur_f1, cur_f1_std))
 
     w_b.finish()
 

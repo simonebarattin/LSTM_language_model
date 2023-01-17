@@ -10,7 +10,7 @@ class VanillaLSTM(nn.Module):
         self.num_layers = num_layers
 
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
-        self.model = nn.LSTM(embedding_dim, hidden_dim, num_layers, batch_first=True)
+        self.model = nn.LSTM(embedding_dim, hidden_dim, num_layers, batch_first=False)
         self.fc = nn.Linear(hidden_dim, vocab_size)
     
     def forward(self, x, h):

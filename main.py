@@ -77,7 +77,7 @@ def main():
     n_layers = 3
 
     epochs = 100
-    train_batch_size = 20
+    train_batch_size = 32
     seq_len = 70
     seq_len_threshold = 0.8
 
@@ -110,6 +110,17 @@ def main():
     vocab.add2vocab("<eos>")
     vocab.process_tokens(train_tokens)
 
+    # Print top-10 most frequent words
+    print("\n#. Top-10 most frequent words")
+    sorted_list = dict(sorted(vocab.frequency_list.items(), key=lambda item: item[1], reverse=True))
+    for k in list(sorted_list.keys())[:10]:
+        print("  \\__{}: {}".format(k, sorted_list[k]))
+
+    print("\n#. Top-10 less frequent words")
+    sorted_list = dict(sorted(vocab.frequency_list.items(), key=lambda item: item[1], reverse=False))
+    for k in list(sorted_list.keys())[:10]:
+        print("  \\__{}: {}".format(k, sorted_list[k]))
+
     # TODO find some corpora stats: word frequency with graph, sentence length, ...
 
     train_ids = PTBDataset(vocab, train_tokens, train_batch_size)
@@ -125,12 +136,12 @@ def main():
     if args.baseline:
         models.append(("vanilla-lstm", VanillaLSTM(len(vocab), embedding_size, embedding_size, num_layers=1)))
     if args.awd:
-        name = concat_name("awd-lstm",  asgd, args.clip_gradient, tye_weights, dropout, dropout_emb, dropout_wgt, 
+        name = concat_name("awd-lstm",  use_asgd, args.clip_gradient, tye_weights, dropout, dropout_emb, dropout_wgt, 
                                             dropout_inp, dropout_hid)
         models.append((name, AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
                                             dropout_inp, dropout_hid, tye_weights)))
     if args.attention:
-        raise NotImplementedError
+        models.append(("Attention LSTM", Attention_LSTM(len(vocab), seq_len, embedding_size, hidden_size, num_layers=1)))
 
     criterion = nn.CrossEntropyLoss()
 
@@ -143,7 +154,7 @@ def main():
     for (name, model) in models:
         print("\n#. {}".format(name.split('_')[0]))
         if name.startswith("awd-lstm"):
-            print("  \\__Averaged SGD: {}".format(asgd))
+            print("  \\__Averaged SGD: {}".format(use_asgd))
             print("  \\__Clip gradient: {}".format(clip_gradient if args.clip_gradient else False))
             print("  \\__Tye Weights: {}".format(tye_weights))
             print("  \\__Dropout: {}".format(dropout))
@@ -169,18 +180,20 @@ def main():
         for epoch in range(epochs):
             print("\n#. Epoch {}".format(epoch))
             print("  \\__Training...")
-            train_loss, train_ppl = train(train_ids, model, optimizer, criterion, lr, train_batch_size, seq_len, seq_len_threshold, w_b, use_cuda, clip_gradient if args.clip_gradient else None, epoch)
+            train_loss, train_ppl, train_f1 = train(train_ids, model, optimizer, criterion, lr, train_batch_size, seq_len, seq_len_threshold, w_b, use_cuda, clip_gradient if args.clip_gradient else None, epoch)
             print("     \\__Loss: {}".format(train_loss))
             print("     \\__PPL: {}".format(train_ppl))
+            print("     \\__F1: {}".format(train_f1))
 
-            if args.wb: w_b.log({"Training/Average Loss": train_loss, "Training/Average PPL": train_ppl})
+            if args.wb: w_b.log({"Training/Average Loss": train_loss, "Training/Average PPL": train_ppl, "Training/Average F1": train_f1})
 
             print("  \\__Validation...")
-            valid_loss, valid_ppl = valid(valid_ids, model, criterion, train_batch_size, seq_len, w_b, use_cuda, epoch)
+            valid_loss, valid_ppl, valid_f1 = valid(valid_ids, model, criterion, train_batch_size, seq_len, w_b, use_cuda, epoch)
             print("     \\__Loss: {}".format(valid_loss))
             print("     \\__PPL: {}".format(valid_ppl))
+            print("     \\__F1: {}".format(valid_f1))
 
-            if args.wb: w_b.log({"Validation/Average Loss": valid_loss, "Validation/Average PPL": valid_ppl})
+            if args.wb: w_b.log({"Validation/Average Loss": valid_loss, "Validation/Average PPL": valid_ppl, "Validation/Average F1": valid_f1})
 
             if valid_ppl < best_ppl:
                 print("       \\__Save model at epoch {} with best perplexity {}".format(epoch, valid_ppl))
