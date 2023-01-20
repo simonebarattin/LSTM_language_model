@@ -32,6 +32,7 @@ class WeightDrop(nn.Module):
 
     def forward(self, *args):
         self._setweight()
+        self.module.flatten_parameters()
         return self.module.forward(*args)
 
 class LockedDropout(nn.Module):

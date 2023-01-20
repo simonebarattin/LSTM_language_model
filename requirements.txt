@@ -1,5 +1,2 @@
 wandb
-torch
-torchvision
-torchaudio
 scikit-learn

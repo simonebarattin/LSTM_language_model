@@ -41,7 +41,7 @@ def train(train_ids, model, optimizer, criterion, lr, batch_size, seq_len, seq_l
         y = y.reshape(-1)
         preds = torch.argmax(output, dim=1)
 
-        f1 = f1_score(y, preds.detach().cpu().numpy(), average='micro')
+        f1 = f1_score(y.detach().cpu().numpy(), preds.detach().cpu().numpy(), average='micro')
         f1s.append(f1)
 
         loss = criterion(output, y)
@@ -85,7 +85,7 @@ def valid(valid_ids, model, criterion, batch_size, seq_len, w_b, use_cuda, epoch
             y = y.reshape(-1)
             preds = torch.argmax(output, dim=1)
 
-            f1 = f1_score(y, preds.detach().cpu().numpy(), average='micro')
+            f1 = f1_score(y.detach().cpu().numpy(), preds.detach().cpu().numpy(), average='micro')
             f1s.append(f1)
 
             loss = criterion(output, y)

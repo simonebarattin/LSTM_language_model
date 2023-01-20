@@ -19,13 +19,9 @@ class AttentionLayer(nn.Module):
 
         self.fcs = nn.Sequential(
             nn.Linear(seq_len*hidden_dim, self.mlp1_dim),
-            nn.ReLU(inplace=True),
             nn.Dropout(dropout),
-            nn.Linear(self.mlp1_dim, self.mlp2_dim),
             nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(self.mlp2_dim, seq_len),
-            nn.ReLU(inplace=True),
+            nn.Linear(self.mlp1_dim, seq_len),
         )
         self.softmax = nn.Softmax(dim=1)
 
@@ -36,11 +32,13 @@ class AttentionLayer(nn.Module):
 
         attention = self.fcs(lstm_emb_flat)
         alpha = self.softmax(attention)
-        alpha = torch.stack([alpha]*self.mlp2_dim, dim=2)
+        alpha = torch.stack([alpha]*self.hidden_dim, dim=2)
         alpha = alpha.transpose(0,1)
 
         attention_map = lstm_emb * alpha
-        # attention_map = torch.sum(attention_map, dim=0, keepdim=True)
+        attention_map = torch.sum(attention_map, dim=0, keepdim=True)
+        attention_map = attention_map.squeeze()
+        attention_map = torch.stack([attention_map]*self.seq_len, dim=0)
         return attention_map
 
 class Attention_LSTM(nn.Module):
@@ -80,3 +78,61 @@ class Attention_LSTM(nn.Module):
             hidden = (weights.new(self.num_layers, batch_size, self.hidden_dim).zero_(), 
                         weights.new(self.num_layers, batch_size, self.hidden_dim).zero_())
         return hidden
+
+import torch
+import torch.nn as nn
+
+class LSTMWithAttention(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, num_layers=1, attention_type='dot'):
+        super(LSTMWithAttention, self).__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers)
+        self.attention_type = attention_type
+        if attention_type == 'dot':
+            self.attention = DotProductAttention(hidden_size)
+        elif attention_type == 'multiplicative':
+            self.attention = MultiplicativeAttention(hidden_size)
+        elif attention_type == 'additive':
+            self.attention = AdditiveAttention(hidden_size)
+        self.output_layer = nn.Linear(hidden_size, output_size)
+
+    def forward(self, input, hidden):
+        lstm_output, hidden = self.lstm(input, hidden)
+        attention_weights = self.attention(lstm_output)
+        weighted_output = lstm_output * attention_weights
+        output = self.output_layer(weighted_output)
+        return output, hidden
+
+class DotProductAttention(nn.Module):
+    def __init__(self, hidden_size):
+        super(DotProductAttention, self).__init__()
+        self.hidden_size = hidden_size
+
+    def forward(self, lstm_output):
+        attention_weights = lstm_output.dot(lstm_output.transpose(1, 2))
+        return attention_weights
+
+class MultiplicativeAttention(nn.Module):
+    def __init__(self, hidden_size):
+        super(MultiplicativeAttention, self).__init__()
+        self.hidden_size = hidden_size
+        self.key_layer = nn.Linear(hidden_size, hidden_size)
+        self.query_layer = nn.Linear(hidden_size, hidden_size)
+
+    def forward(self, lstm_output):
+        key = self.key_layer(lstm_output)
+        query = self.query_layer(lstm_output)
+        attention_weights = key.dot(query.transpose(1, 2))
+        return attention_weights
+
+class AdditiveAttention(nn.Module):
+    def __init__(self, hidden_size):
+        super(AdditiveAttention, self).__init__()
+        self.hidden_size = hidden_size
+        self.key_layer = nn.Linear(hidden_size, hidden_size)
+        self.query_layer = nn.Linear(hidden_size, hidden_size)
+
+    def forward(self, lstm_output):
+        key = self.key_layer(lstm_output)
+        query = self.query_layer(lstm_output)
+        attention_weights = key + query
+        return attention_weights
