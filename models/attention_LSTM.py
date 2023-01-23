@@ -83,9 +83,16 @@ import torch
 import torch.nn as nn
 
 class LSTMWithAttention(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, num_layers=1, attention_type='dot'):
+    def __init__(self, embedding_size, hidden_size, vocab_size, num_layers=1, attention_type='multiplicative'):
         super(LSTMWithAttention, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers)
+        self.embedding_dim = embedding_size
+        self.hidden_dim = hidden_size
+        self.vocab_dim = vocab_size
+        self.num_layers = num_layers
+        self.attention_type = attention_type
+
+        self.embedding = nn.Embedding(vocab_size, embedding_size)
+        self.lstm = nn.LSTM(embedding_size, hidden_size, num_layers)
         self.attention_type = attention_type
         if attention_type == 'dot':
             self.attention = DotProductAttention(hidden_size)
@@ -93,14 +100,29 @@ class LSTMWithAttention(nn.Module):
             self.attention = MultiplicativeAttention(hidden_size)
         elif attention_type == 'additive':
             self.attention = AdditiveAttention(hidden_size)
-        self.output_layer = nn.Linear(hidden_size, output_size)
+        self.attention = nn.MultiheadAttention(hidden_size, vocab_size)
+        self.output_layer = nn.Linear(hidden_size, vocab_size)
 
     def forward(self, input, hidden):
-        lstm_output, hidden = self.lstm(input, hidden)
-        attention_weights = self.attention(lstm_output)
-        weighted_output = lstm_output * attention_weights
-        output = self.output_layer(weighted_output)
+        input_emb = self.embedding(input)
+        lstm_output, hidden = self.lstm(input_emb, hidden)
+        attention_output = self.attention(lstm_output, lstm_output, lstm_output)
+        # attention_weights = self.attention(lstm_output)
+        # weighted_output = lstm_output * attention_weights
+        output = self.output_layer(attention_output)
+
+        output = output.view(output.size(0)*output.size(1), output.size(2))
         return output, hidden
+
+    def init_hidden(self, batch_size, use_cuda):
+        weights = next(self.parameters()).data
+        if use_cuda:
+            hidden = (weights.new(self.num_layers, batch_size, self.hidden_dim).zero_().cuda(), 
+                        weights.new(self.num_layers, batch_size, self.hidden_dim).zero_().cuda())
+        else:
+            hidden = (weights.new(self.num_layers, batch_size, self.hidden_dim).zero_(), 
+                        weights.new(self.num_layers, batch_size, self.hidden_dim).zero_())
+        return hidden
 
 class DotProductAttention(nn.Module):
     def __init__(self, hidden_size):
@@ -117,12 +139,17 @@ class MultiplicativeAttention(nn.Module):
         self.hidden_size = hidden_size
         self.key_layer = nn.Linear(hidden_size, hidden_size)
         self.query_layer = nn.Linear(hidden_size, hidden_size)
+        self.value_layer = nn.Linear(hidden_size, hidden_size)
+        self.attention = nn.MultiheadAttention(hidden_size, num_heads=1)
 
     def forward(self, lstm_output):
         key = self.key_layer(lstm_output)
         query = self.query_layer(lstm_output)
-        attention_weights = key.dot(query.transpose(1, 2))
-        return attention_weights
+        value = self.value_layer(lstm_output)
+        # attention_weights = key.dot(query.transpose(1, 2))
+        (output, attention_weigths)= self.attention(query, key, value)
+
+        return attention_weigths.transpose(1,0)
 
 class AdditiveAttention(nn.Module):
     def __init__(self, hidden_size):

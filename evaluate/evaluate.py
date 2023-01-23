@@ -18,7 +18,7 @@ def evaluate():
 
     '''
     parser = argparse.ArgumentParser(description="Script to evaluate the trained models")
-    parser.add_argument('--weight', default='vanilla-lstm.pth', help="Name of the pth save file of the model to evaluate.")
+    parser.add_argument('--weight', default='vanilla-lstm.pth', help="Path to the pth save file of the model to evaluate.")
     parser.add_argument('--cuda', action='store_true', help="Use GPU acceleration.")
     parser.add_argument('--wb', action='store_true', help="Use Weight&Biases to draw performances graphs.")
     args = parser.parse_args()
@@ -41,7 +41,7 @@ def evaluate():
     else:
         torch.set_default_tensor_type('torch.FloatTensor')
 
-    test_batch_size = 10
+    test_batch_size = 1
     seq_len = 70
 
     embedding_size = 400
@@ -64,19 +64,19 @@ def evaluate():
 
     test_ids = PTBDataset(vocab, test_tokens, test_batch_size)
 
-    weight_filename = args.weight
-    checkpoint = torch.load(osp(BEST_MODEL_PATH, weight_filename))
+    weight_filename = args.weight.split('/')[-1]
+    checkpoint = torch.load(args.weight)
     model_percs = weight_filename.split('.')[0].split('_')
     if model_percs[0] == "vanilla-lstm":
-        model = VanillaLSTM(len(vocab), embedding_size, embedding_size, test_batch_size, num_layers=1)
+        model = VanillaLSTM(len(vocab), embedding_size, embedding_size, num_layers=1)
     else:
         if 'tyeweights' in model_percs:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
-                                            dropout_inp, dropout_hid, tye_weights=True)
+                                            dropout_inp, dropout_hid, tweights=True)
         else:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
-                                            dropout_inp, dropout_hid, tye_weights=False)
-    model = model.load_state_dict(checkpoint['state_dict'])
+                                            dropout_inp, dropout_hid, tweights=False)
+    model.load_state_dict(checkpoint['state_dict'])
     criterion = nn.CrossEntropyLoss()
 
     if args.wb:
@@ -86,7 +86,7 @@ def evaluate():
 
     print("\n#. {}".format(weight_filename.split('.')[0]))
     print("  \\__Testing...")
-    hidden = model.init_hidden(test_batch_size)
+    hidden = model.init_hidden(test_batch_size, use_cuda)
     losses = []
     ppls = []
     f1s = []
@@ -104,7 +104,7 @@ def evaluate():
             y = y.reshape(-1)
             preds = torch.argmax(output, dim=1)
 
-            f1 = f1_score(y, preds.detach().cpu().numpy(), average='micro')
+            f1 = f1_score(y.detach().cpu().numpy(), preds.detach().cpu().numpy(), average='micro')
             f1s.append(f1)
             
 
@@ -115,16 +115,16 @@ def evaluate():
             ppls.append(np.exp(loss.item()))
 
         cur_loss = np.mean(losses)
-        cur_ppl = np.exp(cur_loss)
+        cur_ppl, cur_ppl_std = np.exp(cur_loss), np.std(ppls)
         cur_f1, cur_f1_std = np.mean(f1s), np.std(f1s)
         
-        w_b.log({"Test/Loss": cur_loss, "Test/PPL": cur_ppl, "Test/F1": cur_f1})
+        if args.wb: w_b.log({"Test/Loss": cur_loss, "Test/PPL": cur_ppl, "Test/F1": cur_f1})
 
         print("    \\__Loss: {}".format(cur_loss))
-        print("    \\__PPL: {}".format(cur_ppl))
+        print("    \\__PPL: {}, std: {}".format(cur_ppl, cur_ppl_std))
         print("    \\__F1: {}, std: {}".format(cur_f1, cur_f1_std))
 
-    w_b.finish()
+    if args.wb: w_b.finish()
 
 if __name__ == '__main__':
     evaluate()
