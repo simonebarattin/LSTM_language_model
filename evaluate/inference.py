@@ -17,7 +17,7 @@ def generate(prompt, max_seq_len, temperature, model, vocab, use_cuda, seed=None
     indices = [vocab.word2idx[t] for t in tokens]
     inp = torch.LongTensor([indices]).cuda() if use_cuda else torch.LongTensor([indices])
     batch_size = 1
-    hidden = model.init_hidden(batch_size)
+    hidden = model.init_hidden(batch_size, use_cuda)
     with torch.no_grad():
         for i in range(max_seq_len):
             prediction, hidden = model(inp, hidden)
@@ -38,7 +38,7 @@ def generate(prompt, max_seq_len, temperature, model, vocab, use_cuda, seed=None
 
 def main():
     parser = argparse.ArgumentParser(description="Script to use a pre-trained model to generate text given a prompt")
-    parser.add_argument('--weight', default='vanilla-lstm.pth', help="Name of the pth save file of the model to use.")
+    parser.add_argument('--weight', default='vanilla-lstm.pth', help="Path to the pth save file of the model to use.")
     parser.add_argument('--cuda', action='store_true', help="Use GPU acceleration.")
     args = parser.parse_args()
 
@@ -71,22 +71,20 @@ def main():
     vocab.add2vocab("<eos>")
     vocab.process_tokens(train_tokens)
 
-    weight_filename = args.weight
-    checkpoint = torch.load(osp.join(BEST_MODEL_PATH, weight_filename))
+    weight_filename = args.weight.split('/')[-1]
+    checkpoint = torch.load(args.weight, map_location=torch.device('cpu')) if not args.cuda else torch.load(args.weight)
     model_percs = weight_filename.split('.')[0].split('_')
-
-    if model_percs[0] == 'vanilla-lstm':
-        model = VanillaLSTM(len(vocab), embedding_size, hidden_size, n_layers)
+    if model_percs[0] == "vanilla-lstm":
+        model = VanillaLSTM(len(vocab), embedding_size, embedding_size, num_layers=1)
     else:
         if 'tyeweights' in model_percs:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
-                                            dropout_inp, dropout_hid, tye_weights=True)
+                                            dropout_inp, dropout_hid, tweights=True)
         else:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
-                                            dropout_inp, dropout_hid, tye_weights=False)
-    model = model.load_state_dict(checkpoint['state_dict'])
-
+                                            dropout_inp, dropout_hid, tweights=False)
     model.load_state_dict(checkpoint['state_dict'])
+
     prompt = 'the'
     max_seq_len = 30
     seed = 0

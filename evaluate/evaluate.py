@@ -65,7 +65,7 @@ def evaluate():
     test_ids = PTBDataset(vocab, test_tokens, test_batch_size)
 
     weight_filename = args.weight.split('/')[-1]
-    checkpoint = torch.load(args.weight)
+    checkpoint = torch.load(args.weight, map_location=torch.device('cpu')) if not args.cuda else torch.load(args.weight)
     model_percs = weight_filename.split('.')[0].split('_')
     if model_percs[0] == "vanilla-lstm":
         model = VanillaLSTM(len(vocab), embedding_size, embedding_size, num_layers=1)
