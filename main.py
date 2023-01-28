@@ -23,14 +23,15 @@ def main():
     parser.add_argument('--baseline', action='store_true', help="Train a vanilla LSTM baseline.")
     parser.add_argument('--awd', action='store_true', help="Train a AWD LSTM.")
     parser.add_argument('--attention', action='store_true', help="Train a LSTM with attention.")
+    parser.add_argument('--cnn', action='store_true', help="Train a Gated CNN.")
     parser.add_argument('--asgd', action='store_true', help="Use the Averaged SGD (after SGD converges).")
-    parser.add_argument('--tye-weights', action='store_true', help="Use regualrization tye weights.")
-    parser.add_argument('--clip-gradient', action='store_true', help="Use clip gradient regularization.")
     parser.add_argument('--dropout', type=float, default=0.5, help="Apply dropout.")
     parser.add_argument('--dropout-emb', type=float, default=0.0, help="Apply dropout to the embeddings' matrices.")
     parser.add_argument('--dropout-inp', type=float, default=0.0, help="Apply dropout on the input's recurrent connection.")
     parser.add_argument('--dropout-hid', type=float, default=0.0, help="Apply dropout on the hidden's recurrent connection.")
     parser.add_argument('--dropout-wgt', type=float, default=0.0, help="Apply dropout on the weights matrices.")
+    parser.add_argument('--clip-gradient', action='store_true', help="Use clip gradient regularization.")
+    parser.add_argument('--tye-weights', action='store_true', help="Use regualrization tye weights.")
     parser.add_argument('--cuda', action='store_true', help="Use GPU acceleration.")
     parser.add_argument('--wb', action='store_true', help="Use Weight&Biases to draw performances graphs.")
 
@@ -78,13 +79,22 @@ def main():
 
     epochs = 100
     train_batch_size = 32
-    seq_len = 70
+    seq_len = 21#70
     seq_len_threshold = 0.8
 
     lr_awd = 30
     lr_vanilla = 0.1
     weight_decay = 1e-6
     patience = 5
+
+    # Gated CNN hyperparameters
+    seq_len_cnn = 21
+    embedding_cnn = 200
+    kernel_size = 2
+    out_channels = 600
+    num_layers_cnn = 4
+    bottleneck = 20
+    lr_cnn = 10
 
     if not osp.exists(BEST_MODEL_PATH):
         os.makedirs(BEST_MODEL_PATH, exist_ok=True)
@@ -97,32 +107,20 @@ def main():
 
     train_tokens = load_data_tokenize(DATASET['train'])
     valid_tokens = load_data_tokenize(DATASET['valid'])
-    test_tokens = load_data_tokenize(DATASET['test'])
-
-    print("#. Checking OOV words...")
-    train_set = set(train_tokens)
-    val_set = set(valid_tokens)
-    test_set = set(test_tokens)
-    print("  \\__Test-Train: ",len(test_set.difference(train_set)), " Val-Train: ", len(val_set.difference(train_set)))
 
     vocab = Vocabulary()
     vocab.add2vocab("<unk>")
     vocab.add2vocab("<eos>")
     vocab.process_tokens(train_tokens)
-
-    # Print top-10 most frequent words
-    print("\n#. Top-10 most frequent words")
-    sorted_list = dict(sorted(vocab.frequency_list.items(), key=lambda item: item[1], reverse=True))
-    for k in list(sorted_list.keys())[:10]:
-        print("  \\__{}: {}".format(k, sorted_list[k]))
-
-    print("\n#. Top-10 less frequent words")
-    sorted_list = dict(sorted(vocab.frequency_list.items(), key=lambda item: item[1], reverse=False))
-    for k in list(sorted_list.keys())[:10]:
-        print("  \\__{}: {}".format(k, sorted_list[k]))
-
-    # TODO find some corpora stats: word frequency with graph, sentence length, ...
-
+    
+    if args.baseline:
+        mode = 'vanilla'
+    if args.awd:
+        mode = 'awd'
+    if args.attention:
+        mode = 'attention'
+    if args.cnn:
+        mode = 'cnn'
     train_ids = PTBDataset(vocab, train_tokens, train_batch_size)
     valid_ids = PTBDataset(vocab, valid_tokens, train_batch_size)
 
@@ -141,7 +139,9 @@ def main():
         models.append((name, AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
                                             dropout_inp, dropout_hid, tye_weights)))
     if args.attention:
-        models.append(("Attention LSTM", Attention_LSTM(len(vocab), seq_len, embedding_size, hidden_size, num_layers=1)))
+        models.append(("Attention LSTM", AT_LSTM(embedding_size, hidden_size, len(vocab), num_layers=1)))
+    if args.cnn:
+        models.append(("Gated CNN LM", CNN_LM(len(vocab), embedding_cnn, kernel_size, out_channels, num_layers_cnn, bottleneck)))
 
     criterion = nn.CrossEntropyLoss()
 
@@ -164,8 +164,17 @@ def main():
             print("  \\__Dropout weights: {}".format(dropout_wgt))
 
         model = model.cuda() if use_cuda else model
-        lr = lr_vanilla if isinstance(model, VanillaLSTM) else lr_awd
+        lr = lr_awd if isinstance(model, AWDLSTM) else lr_vanilla
         optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
+        use_scheduler = False
+        if isinstance(model, CNN_LM):
+            lr = lr_cnn
+            optimizer = torch.optim.Adadelta(model.parameters(),
+                                lr=10,
+                                rho=0.95)
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=1, verbose=True)
+            use_scheduler = True
+            seq_len = seq_len_cnn
 
         if args.wb:
             w_b = WeightBiases(dict(
@@ -180,7 +189,7 @@ def main():
         for epoch in range(epochs):
             print("\n#. Epoch {}".format(epoch))
             print("  \\__Training...")
-            train_loss, train_ppl, train_f1 = train(train_ids, model, optimizer, criterion, lr, train_batch_size, seq_len, seq_len_threshold, w_b, use_cuda, clip_gradient if args.clip_gradient else None, epoch)
+            train_loss, train_ppl, train_f1 = train(mode, train_ids, model, optimizer, criterion, lr, train_batch_size, seq_len, seq_len_threshold, w_b, use_cuda, clip_gradient if args.clip_gradient else None, epoch)
             print("     \\__Loss: {}".format(train_loss))
             print("     \\__PPL: {}".format(train_ppl))
             print("     \\__F1: {}".format(train_f1))
@@ -188,7 +197,8 @@ def main():
             if args.wb: w_b.log({"Training/Average Loss": train_loss, "Training/Average PPL": train_ppl, "Training/Average F1": train_f1})
 
             print("  \\__Validation...")
-            valid_loss, valid_ppl, valid_f1 = valid(valid_ids, model, criterion, train_batch_size, seq_len, w_b, use_cuda, epoch)
+            valid_loss, valid_ppl, valid_f1 = valid(mode, valid_ids, model, criterion, train_batch_size, seq_len, w_b, use_cuda, epoch)
+            if use_scheduler: scheduler.step(valid_ppl)
             print("     \\__Loss: {}".format(valid_loss))
             print("     \\__PPL: {}".format(valid_ppl))
             print("     \\__F1: {}".format(valid_f1))

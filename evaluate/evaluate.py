@@ -48,6 +48,13 @@ def evaluate():
     hidden_size = 1150
     n_layers = 3
 
+    seq_len_cnn = 21
+    embedding_cnn = 200
+    kernel_size = 2
+    out_channels = 600
+    num_layers_cnn = 4
+    bottleneck = 20
+
     dropout = 0.
     dropout_emb = 0.
     dropout_inp = 0.
@@ -67,15 +74,20 @@ def evaluate():
     weight_filename = args.weight.split('/')[-1]
     checkpoint = torch.load(args.weight, map_location=torch.device('cpu')) if not args.cuda else torch.load(args.weight)
     model_percs = weight_filename.split('.')[0].split('_')
-    if model_percs[0] == "vanilla-lstm":
+    if model_percs[0] == 'vanilla-lstm':
         model = VanillaLSTM(len(vocab), embedding_size, embedding_size, num_layers=1)
-    else:
+    elif model_percs[0] == 'awd-lstm':
         if 'tyeweights' in model_percs:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
                                             dropout_inp, dropout_hid, tweights=True)
         else:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
                                             dropout_inp, dropout_hid, tweights=False)
+    elif model_percs[0] == 'Attention-LSTM':
+        model = AT_LSTM(embedding_size, hidden_size, len(vocab), num_layers=1)
+    else:
+        seq_len = seq_len_cnn
+        model = CNN_LM(len(vocab), embedding_cnn, kernel_size, out_channels, num_layers_cnn, bottleneck)
     model.load_state_dict(checkpoint['state_dict'])
     criterion = nn.CrossEntropyLoss()
 
@@ -86,7 +98,7 @@ def evaluate():
 
     print("\n#. {}".format(weight_filename.split('.')[0]))
     print("  \\__Testing...")
-    hidden = model.init_hidden(test_batch_size, use_cuda)
+    hidden = model.init_hidden(test_batch_size, use_cuda) if not isinstance(model, CNN_LM) else None
     losses = []
     ppls = []
     f1s = []
@@ -96,19 +108,22 @@ def evaluate():
             x, y = test_ids.get_batch(i, seq_len)
             x = x.cuda() if use_cuda else x
             y = y.cuda() if use_cuda else y
-            # h = tuple([each.data for each in hidden])
-            h = detach_hidden(hidden)
 
-            output, h = model(x, h)
-            # output = output.reshape(test_batch_size * seq_len, -1)
-            y = y.reshape(-1)
-            preds = torch.argmax(output, dim=1)
+            if not isinstance(model, CNN_LM): h = detach_hidden(hidden)
 
-            f1 = f1_score(y.detach().cpu().numpy(), preds.detach().cpu().numpy(), average='micro')
-            f1s.append(f1)
-            
+            if not isinstance(model, CNN_LM):
+                output, h = model(x, h)
+                y = y.reshape(-1)
+                preds = torch.argmax(output, dim=1)
 
-            loss = criterion(output, y)
+                f1 = f1_score(y.detach().cpu().numpy(), preds.detach().cpu().numpy(), average='micro')
+                f1s.append(f1)
+
+                loss = criterion(output, y)
+            else:
+                output, loss = model(x)
+                f1 = 0.            
+
             cur_ppl = np.exp(loss.item())
 
             losses.append(loss.item())

@@ -6,8 +6,8 @@ from utils import detach_hidden
 from models import *
 from sklearn.metrics import f1_score
 
-def train(train_ids, model, optimizer, criterion, lr, batch_size, seq_len, seq_len_threshold, w_b, use_cuda, clip_grad, epoch):
-    hidden = model.init_hidden(batch_size, use_cuda)
+def train(mode, train_ids, model, optimizer, criterion, lr, batch_size, seq_len, seq_len_threshold, w_b, use_cuda, clip_grad, epoch):
+    hidden = model.init_hidden(batch_size, use_cuda) if mode != 'cnn' else None
     losses = []
     ppls = []
     f1s = []
@@ -30,27 +30,32 @@ def train(train_ids, model, optimizer, criterion, lr, batch_size, seq_len, seq_l
         x, y = train_ids.get_batch(i, bptt)
         if x.shape!=y.shape:
             break
+
         x = x.cuda() if use_cuda else x
         y = y.cuda() if use_cuda else y
-        h = detach_hidden(hidden)
+        if mode != 'cnn': h = detach_hidden(hidden)
 
         optimizer.zero_grad()
-        output, h = model(x, h)
+        if mode != 'cnn':
+            output, h = model(x, h)
+            y = y.reshape(-1)
+            preds = torch.argmax(output, dim=1)
 
-        # output = output.reshape(batch_size * seq_len, -1)
-        y = y.reshape(-1)
-        preds = torch.argmax(output, dim=1)
+            f1 = f1_score(y.detach().cpu().numpy(), preds.detach().cpu().numpy(), average='micro')
+            f1s.append(f1)
 
-        f1 = f1_score(y.detach().cpu().numpy(), preds.detach().cpu().numpy(), average='micro')
-        f1s.append(f1)
+            loss = criterion(output, y)
+        else:
+            output, loss = model(x)
+            f1 = 0.
 
-        loss = criterion(output, y)
         loss.backward()
         if clip_grad is not None: nn.utils.clip_grad_norm_(model.parameters(), clip_grad) 
         optimizer.step()
         
         losses.append(loss.item())
         cur_ppl = np.exp(loss.item())
+        print(cur_ppl)
 
         if w_b is not None:
             w_b.log({"Training/Loss": loss.item(), "Training/PPL": cur_ppl, "Training/F1": f1})
@@ -64,31 +69,36 @@ def train(train_ids, model, optimizer, criterion, lr, batch_size, seq_len, seq_l
     cur_f1 = np.mean(f1s)
     return cur_loss, cur_ppl, cur_f1
 
-def valid(valid_ids, model, criterion, batch_size, seq_len, w_b, use_cuda, epoch):
-    hidden = model.init_hidden(batch_size, use_cuda)
+def valid(mode, valid_ids, model, criterion, batch_size, seq_len, w_b, use_cuda, epoch):
+    hidden = model.init_hidden(batch_size, use_cuda) if mode != 'cnn' else None
     losses = []
     ppls = []
     f1s = []
 
     model.eval()
     with torch.no_grad():
-        # for i in tqdm(range(0, val_ids.data.size(1) - seq_len, seq_len)):
         for i in range(0, valid_ids.data.size(0) - 1, seq_len):
             x, y = valid_ids.get_batch(i, seq_len)
             if x.shape!=y.shape:
                 continue
+
             x = x.cuda() if use_cuda else x
             y = y.cuda() if use_cuda else y
-            h = detach_hidden(hidden)
+            if mode != 'cnn': h = detach_hidden(hidden)
 
-            output, h = model(x, h)
-            y = y.reshape(-1)
-            preds = torch.argmax(output, dim=1)
+            if mode != 'cnn':
+                output, h = model(x, h)
+                y = y.reshape(-1)
+                preds = torch.argmax(output, dim=1)
 
-            f1 = f1_score(y.detach().cpu().numpy(), preds.detach().cpu().numpy(), average='micro')
-            f1s.append(f1)
+                f1 = f1_score(y.detach().cpu().numpy(), preds.detach().cpu().numpy(), average='micro')
+                f1s.append(f1)
 
-            loss = criterion(output, y)
+                loss = criterion(output, y)
+            else:
+                output, loss = model(x)
+                f1 = 0.
+            
             cur_ppl = np.exp(loss.item())
 
             if w_b is not None:
