@@ -78,8 +78,8 @@ def main():
     n_layers = 3
 
     epochs = 100
-    train_batch_size = 32
-    seq_len = 21#70
+    train_batch_size = 2#32
+    seq_len = 10#70
     seq_len_threshold = 0.8
 
     lr_awd = 30
@@ -121,8 +121,8 @@ def main():
         mode = 'attention'
     if args.cnn:
         mode = 'cnn'
-    train_ids = PTBDataset(vocab, train_tokens, train_batch_size)
-    valid_ids = PTBDataset(vocab, valid_tokens, train_batch_size)
+    train_ids = PTBDataset(vocab, train_tokens, train_batch_size, mode)
+    valid_ids = PTBDataset(vocab, valid_tokens, train_batch_size, mode)
 
     ####################################################################################################################
     ##                                                                                                                ##
@@ -189,21 +189,23 @@ def main():
         for epoch in range(epochs):
             print("\n#. Epoch {}".format(epoch))
             print("  \\__Training...")
-            train_loss, train_ppl, train_f1 = train(mode, train_ids, model, optimizer, criterion, lr, train_batch_size, seq_len, seq_len_threshold, w_b, use_cuda, clip_gradient if args.clip_gradient else None, epoch)
+            train_loss, train_ppl, train_f1 = train(vocab, mode, train_ids, model, optimizer, criterion, lr, train_batch_size, seq_len, seq_len_threshold, w_b, use_cuda, clip_gradient if args.clip_gradient else None, epoch)
             print("     \\__Loss: {}".format(train_loss))
             print("     \\__PPL: {}".format(train_ppl))
-            print("     \\__F1: {}".format(train_f1))
+            # print("     \\__F1: {}".format(train_f1))
 
-            if args.wb: w_b.log({"Training/Average Loss": train_loss, "Training/Average PPL": train_ppl, "Training/Average F1": train_f1})
+            if args.wb: w_b.log({"Training/Average Loss": train_loss, "Training/Average PPL": train_ppl}) #, "Training/Average F1": train_f1})
 
             print("  \\__Validation...")
-            valid_loss, valid_ppl, valid_f1 = valid(mode, valid_ids, model, criterion, train_batch_size, seq_len, w_b, use_cuda, epoch)
+            valid_loss, valid_ppl, valid_f1 = valid(vocab, mode, valid_ids, model, criterion, train_batch_size, seq_len, w_b, use_cuda, epoch)
             if use_scheduler: scheduler.step(valid_ppl)
             print("     \\__Loss: {}".format(valid_loss))
             print("     \\__PPL: {}".format(valid_ppl))
-            print("     \\__F1: {}".format(valid_f1))
+            # print("     \\__F1: {}".format(valid_f1))
 
-            if args.wb: w_b.log({"Validation/Average Loss": valid_loss, "Validation/Average PPL": valid_ppl, "Validation/Average F1": valid_f1})
+            if args.wb: 
+                w_b.log({"Validation/Average Loss": valid_loss, "Validation/Average PPL": valid_ppl}) #, "Validation/Average F1": valid_f1})
+                w_b.step(1)
 
             if valid_ppl < best_ppl:
                 print("       \\__Save model at epoch {} with best perplexity {}".format(epoch, valid_ppl))
