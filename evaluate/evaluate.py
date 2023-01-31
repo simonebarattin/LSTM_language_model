@@ -135,7 +135,7 @@ def evaluate():
         if args.wb: w_b.log({"Test/Loss": cur_loss, "Test/PPL": cur_ppl})
 
         print("    \\__Loss: {}".format(cur_loss))
-        print("    \\__PPL: {}, std: {}".format(cur_ppl, cur_ppl_std))
+        print("    \\__PPL: {}".format(cur_ppl))
 
     if args.wb: w_b.finish()
 
