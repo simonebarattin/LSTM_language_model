@@ -58,6 +58,12 @@ def main():
     hidden_size = 1150
     n_layers = 3
 
+    embedding_cnn = 200
+    kernel_size = 2
+    out_channels = 600
+    num_layers_cnn = 4
+    bottleneck = 20
+
     dropout = 0.
     dropout_emb = 0.
     dropout_inp = 0.
@@ -69,20 +75,28 @@ def main():
     vocab = Vocabulary()
     vocab.add2vocab("<unk>")
     vocab.add2vocab("<eos>")
-    vocab.process_tokens(train_tokens)
+    _ = vocab.process_tokens(train_tokens)
 
     weight_filename = args.weight.split('/')[-1]
     checkpoint = torch.load(args.weight, map_location=torch.device('cpu')) if not args.cuda else torch.load(args.weight)
     model_percs = weight_filename.split('.')[0].split('_')
-    if model_percs[0] == "vanilla-lstm":
+    if model_percs[0] == 'vanilla-lstm':
         model = VanillaLSTM(len(vocab), embedding_size, embedding_size, num_layers=1)
-    else:
+        mode = 'vanilla'
+    elif model_percs[0] == 'awd-lstm':
         if 'tyeweights' in model_percs:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
                                             dropout_inp, dropout_hid, tweights=True)
         else:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
                                             dropout_inp, dropout_hid, tweights=False)
+        mode = 'awd'
+    elif model_percs[0] == 'Attention LSTM':
+        model = AT_LSTM(embedding_size, hidden_size, len(vocab), num_layers=1)
+        mode = 'attention'
+    else:
+        model = CNN_LM(len(vocab), embedding_cnn, kernel_size, out_channels, num_layers_cnn, bottleneck)
+        mode = 'cnn'
     model.load_state_dict(checkpoint['state_dict'])
 
     prompt = 'the'

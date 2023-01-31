@@ -62,7 +62,7 @@ def main():
     ####################################################################################################################
 
     if args.clip_gradient:
-        clip_gradient = 0.25
+        clip_gradient = CLIP_GRADIENT
     tye_weights = args.tye_weights
     use_asgd = args.asgd
     asgd = False
@@ -73,28 +73,31 @@ def main():
     dropout_hid = args.dropout_hid
     dropout_wgt = args.dropout_wgt
 
-    embedding_size = 400
-    hidden_size = 1150
-    n_layers = 3
+    embedding_size = EMBEDDING_SIZE
+    hidden_size = HIDDEN_SIZE
+    n_layers = NUM_LAYERS
 
-    epochs = 100
-    train_batch_size = 2#32
-    seq_len = 10#70
-    seq_len_threshold = 0.8
+    epochs = EPOCHS
+    train_batch_size = TRAIN_BATCH_SIZE
+    seq_len = SEQ_LEN_AWD_VANILLA
+    seq_len_threshold = SEQ_LEN_THRESHOLD
 
-    lr_awd = 30
-    lr_vanilla = 0.1
-    weight_decay = 1e-6
-    patience = 5
+    lr_awd = LR_AWD
+    lr_vanilla = LEARNING_RATE
+    weight_decay = WEIGHT_DECAY
+    patience = PATIENCE
+
+    # Attention LSTM
+    seq_len_att = SEQ_LEN_ATT
 
     # Gated CNN hyperparameters
-    seq_len_cnn = 21
-    embedding_cnn = 200
-    kernel_size = 2
-    out_channels = 600
-    num_layers_cnn = 4
-    bottleneck = 20
-    lr_cnn = 10
+    seq_len_cnn = SEQ_LEN_CNN
+    embedding_cnn = EMBEDDING_SIZE_CNN
+    kernel_size = KERNEL_SIZE
+    out_channels = OUT_CHANNELS
+    num_layers_cnn = NUM_LAYERS_CNN
+    bottleneck = BOTTLENECK
+    lr_cnn = LEARNING_RATE_CNN
 
     if not osp.exists(BEST_MODEL_PATH):
         os.makedirs(BEST_MODEL_PATH, exist_ok=True)
@@ -111,7 +114,9 @@ def main():
     vocab = Vocabulary()
     vocab.add2vocab("<unk>")
     vocab.add2vocab("<eos>")
-    vocab.process_tokens(train_tokens)
+    ce_weights = vocab.process_tokens(train_tokens) # returns weights for each word in the vocabulary for weighted CE -> not used
+    if use_cuda:
+        ce_weights = ce_weights.cuda()
     
     if args.baseline:
         mode = 'vanilla'
@@ -143,7 +148,7 @@ def main():
     if args.cnn:
         models.append(("Gated CNN LM", CNN_LM(len(vocab), embedding_cnn, kernel_size, out_channels, num_layers_cnn, bottleneck)))
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss() # NO WEIGHTS
 
     ####################################################################################################################
     ##                                                                                                                ##
@@ -175,6 +180,8 @@ def main():
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=1, verbose=True)
             use_scheduler = True
             seq_len = seq_len_cnn
+        if isinstance(model, AT_LSTM):
+            seq_len = seq_len_att
 
         if args.wb:
             w_b = WeightBiases(dict(
@@ -189,23 +196,21 @@ def main():
         for epoch in range(epochs):
             print("\n#. Epoch {}".format(epoch))
             print("  \\__Training...")
-            train_loss, train_ppl, train_f1 = train(vocab, mode, train_ids, model, optimizer, criterion, lr, train_batch_size, seq_len, seq_len_threshold, w_b, use_cuda, clip_gradient if args.clip_gradient else None, epoch)
+            train_loss, train_ppl = train(mode, train_ids, model, optimizer, criterion, lr, train_batch_size, seq_len, seq_len_threshold, use_cuda, clip_gradient if args.clip_gradient else None)
             print("     \\__Loss: {}".format(train_loss))
             print("     \\__PPL: {}".format(train_ppl))
-            # print("     \\__F1: {}".format(train_f1))
 
-            if args.wb: w_b.log({"Training/Average Loss": train_loss, "Training/Average PPL": train_ppl}) #, "Training/Average F1": train_f1})
+            if args.wb: w_b.log({"Training/Average Loss": train_loss, "Training/Average PPL": train_ppl})
 
             print("  \\__Validation...")
-            valid_loss, valid_ppl, valid_f1 = valid(vocab, mode, valid_ids, model, criterion, train_batch_size, seq_len, w_b, use_cuda, epoch)
+            valid_loss, valid_ppl = valid(mode, valid_ids, model, criterion, train_batch_size, seq_len, use_cuda)
             if use_scheduler: scheduler.step(valid_ppl)
             print("     \\__Loss: {}".format(valid_loss))
             print("     \\__PPL: {}".format(valid_ppl))
-            # print("     \\__F1: {}".format(valid_f1))
 
             if args.wb: 
-                w_b.log({"Validation/Average Loss": valid_loss, "Validation/Average PPL": valid_ppl}) #, "Validation/Average F1": valid_f1})
-                w_b.step(1)
+                w_b.log({"Validation/Average Loss": valid_loss, "Validation/Average PPL": valid_ppl})
+                w_b.step_increment(1)
 
             if valid_ppl < best_ppl:
                 print("       \\__Save model at epoch {} with best perplexity {}".format(epoch, valid_ppl))

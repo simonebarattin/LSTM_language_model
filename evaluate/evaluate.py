@@ -18,7 +18,7 @@ def evaluate():
 
     '''
     parser = argparse.ArgumentParser(description="Script to evaluate the trained models")
-    parser.add_argument('--weight', default='vanilla-lstm.pth', help="Path to the pth save file of the model to evaluate.")
+    parser.add_argument('--weight', default='models/model_weights/vanilla-lstm.pth', help="Path to the pth save file of the model to evaluate.")
     parser.add_argument('--cuda', action='store_true', help="Use GPU acceleration.")
     parser.add_argument('--wb', action='store_true', help="Use Weight&Biases to draw performances graphs.")
     args = parser.parse_args()
@@ -48,6 +48,8 @@ def evaluate():
     hidden_size = 1150
     n_layers = 3
 
+    seq_len_att = 10
+
     seq_len_cnn = 21
     embedding_cnn = 200
     kernel_size = 2
@@ -67,15 +69,14 @@ def evaluate():
     vocab = Vocabulary()
     vocab.add2vocab("<unk>")
     vocab.add2vocab("<eos>")
-    vocab.process_tokens(train_tokens)
-
-    test_ids = PTBDataset(vocab, test_tokens, test_batch_size)
+    _ = vocab.process_tokens(train_tokens)
 
     weight_filename = args.weight.split('/')[-1]
     checkpoint = torch.load(args.weight, map_location=torch.device('cpu')) if not args.cuda else torch.load(args.weight)
     model_percs = weight_filename.split('.')[0].split('_')
     if model_percs[0] == 'vanilla-lstm':
         model = VanillaLSTM(len(vocab), embedding_size, embedding_size, num_layers=1)
+        mode = 'vanilla'
     elif model_percs[0] == 'awd-lstm':
         if 'tyeweights' in model_percs:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
@@ -83,13 +84,19 @@ def evaluate():
         else:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
                                             dropout_inp, dropout_hid, tweights=False)
-    elif model_percs[0] == 'Attention-LSTM':
+        mode = 'awd'
+    elif model_percs[0] == 'attention-lstm':
+        seq_len = seq_len_att
         model = AT_LSTM(embedding_size, hidden_size, len(vocab), num_layers=1)
+        mode = 'attention'
     else:
         seq_len = seq_len_cnn
         model = CNN_LM(len(vocab), embedding_cnn, kernel_size, out_channels, num_layers_cnn, bottleneck)
+        mode = 'cnn'
     model.load_state_dict(checkpoint['state_dict'])
     criterion = nn.CrossEntropyLoss()
+
+    test_ids = PTBDataset(vocab, test_tokens, test_batch_size, mode)
 
     if args.wb:
         w_b = WeightBiases(dict(
@@ -101,7 +108,6 @@ def evaluate():
     hidden = model.init_hidden(test_batch_size, use_cuda) if not isinstance(model, CNN_LM) else None
     losses = []
     ppls = []
-    f1s = []
     model.eval()
     with torch.no_grad():
         for i in range(0, test_ids.data.size(0) - seq_len, seq_len):
@@ -114,15 +120,9 @@ def evaluate():
             if not isinstance(model, CNN_LM):
                 output, h = model(x, h)
                 y = y.reshape(-1)
-                preds = torch.argmax(output, dim=1)
-
-                f1 = f1_score(y.detach().cpu().numpy(), preds.detach().cpu().numpy(), average='micro')
-                f1s.append(f1)
-
                 loss = criterion(output, y)
             else:
                 output, loss = model(x)
-                f1 = 0.            
 
             cur_ppl = np.exp(loss.item())
 
@@ -131,13 +131,11 @@ def evaluate():
 
         cur_loss = np.mean(losses)
         cur_ppl, cur_ppl_std = np.exp(cur_loss), np.std(ppls)
-        cur_f1, cur_f1_std = np.mean(f1s), np.std(f1s)
         
-        if args.wb: w_b.log({"Test/Loss": cur_loss, "Test/PPL": cur_ppl, "Test/F1": cur_f1})
+        if args.wb: w_b.log({"Test/Loss": cur_loss, "Test/PPL": cur_ppl})
 
         print("    \\__Loss: {}".format(cur_loss))
         print("    \\__PPL: {}, std: {}".format(cur_ppl, cur_ppl_std))
-        print("    \\__F1: {}, std: {}".format(cur_f1, cur_f1_std))
 
     if args.wb: w_b.finish()
 

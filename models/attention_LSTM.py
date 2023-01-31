@@ -1,8 +1,9 @@
 import torch
-import math
 import torch.nn as nn
-import torch.nn.functional as F
 
+'''
+    TODO Add description
+'''
 class AttentionMechanism(nn.Module):
     def __init__(self, hidden_dim, dropout):
         super(AttentionMechanism, self).__init__()
@@ -17,7 +18,7 @@ class AttentionMechanism(nn.Module):
         return attention_weigths
 
 class AT_LSTM(nn.Module):
-    def __init__(self, embedding_size, hidden_size, vocab_size, num_layers=1, bidirectional=True):
+    def __init__(self, embedding_size, hidden_size, vocab_size, num_layers=1, bidirectional=False):
         super(AT_LSTM, self).__init__()
         self.embedding_dim = embedding_size
         self.vocab_dim = vocab_size
@@ -32,7 +33,7 @@ class AT_LSTM(nn.Module):
         self.output_layer = nn.Linear(hidden_size*self.bidirectional, vocab_size)
 
     def forward(self, input, hidden):
-        input = input.permute(1,0)
+        input = input.permute(1, 0)
         input_emb = self.embedding(input)
         lstm_output, hidden = self.lstm(input_emb, hidden)
 
@@ -40,7 +41,7 @@ class AT_LSTM(nn.Module):
         output = lstm_output * attention_weights
         output = torch.sum(output, dim=1)
 
-        output = self.output_layer(output.squeeze())
+        output = self.output_layer(output)
 
         return output, hidden
 

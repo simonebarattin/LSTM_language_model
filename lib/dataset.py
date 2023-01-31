@@ -26,7 +26,7 @@ class PTBDataset():
     def get_batch(self, idx, seq_len):
         '''
             Data shape returned torch.Size([sequence length, batch size])
-                e.g. torch.Size([70, 64])
+                e.g. torch.Size([70, 32])
         '''
         x = self.data[idx:idx+seq_len]
         if self.mode == 'attention':

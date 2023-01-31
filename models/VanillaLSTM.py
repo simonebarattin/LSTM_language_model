@@ -1,6 +1,10 @@
 import torch
 import torch.nn as nn
 
+'''
+    TODO add description
+'''
+
 class VanillaLSTM(nn.Module):
     def __init__(self, vocab_size, embedding_dim, hidden_dim, num_layers):
         super(VanillaLSTM, self).__init__()
