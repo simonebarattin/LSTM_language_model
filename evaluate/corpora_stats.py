@@ -2,10 +2,12 @@ import sys
 sys.path.append('.')
 sys.path.append('..')
 
-import os
 from lib import *
 from utils import load_data_tokenize
 
+'''
+    Script to extract information from the dataset corpora, e.g. words frequency, OOV words, ...
+'''
 def corpora_stats():
     train_tokens = load_data_tokenize(DATASET['train'])
     valid_tokens = load_data_tokenize(DATASET['valid'])
@@ -18,7 +20,7 @@ def corpora_stats():
     test_set = set(test_tokens)
     print("  \\__Test-Train: ",len(test_set.difference(train_set)), " Val-Train: ", len(val_set.difference(train_set)))
 
-    # Print top-10 most frequent words
+    # Print top-10 most/less frequent words
     vocab = Vocabulary()
     vocab.add2vocab("<unk>")
     vocab.add2vocab("<eos>")

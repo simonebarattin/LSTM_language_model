@@ -1,9 +1,9 @@
 import wandb
 
+'''
+    A script to initialize the object to connect to the Weight & Biases API.
+'''
 class WeightBiases():
-    '''
-        A script to initialize the object to connect to the Weight & Biases API.
-    '''
     def __init__(self, dict_):
         wandb.config = dict_
         wandb.init(project="nlu_project", entity="simonebarattin", name=dict_["name"], config=wandb.config)

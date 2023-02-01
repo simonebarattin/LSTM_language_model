@@ -5,18 +5,18 @@ sys.path.append('..')
 import torch
 import argparse
 import numpy as np
-import os.path as osp
 import torch.nn as nn
 from lib import *
 from models import *
 from utils import load_data_tokenize, detach_hidden
-from sklearn.metrics import f1_score
 
+'''
+    Script to evaluate loss and perplexity of one of the pre-trained models on the dataset's test set.
+
+    Usage example:
+        python evaluate/evaluate.py --weight models/model_weights/vanilla-lstm.pth --cuda
+'''
 def evaluate():
-    '''
-        A script to evaluate loss and perplexity of pre-trained model.
-
-    '''
     parser = argparse.ArgumentParser(description="Script to evaluate the trained models")
     parser.add_argument('--weight', default='models/model_weights/vanilla-lstm.pth', help="Path to the pth save file of the model to evaluate.")
     parser.add_argument('--cuda', action='store_true', help="Use GPU acceleration.")
@@ -41,21 +41,21 @@ def evaluate():
     else:
         torch.set_default_tensor_type('torch.FloatTensor')
 
-    test_batch_size = 1
-    seq_len = 70
+    test_batch_size = TEST_BATCH_SIZE
+    seq_len = SEQ_LEN_AWD_VANILLA
 
-    embedding_size = 400
-    hidden_size = 1150
-    n_layers = 3
+    embedding_size = EMBEDDING_SIZE
+    hidden_size = HIDDEN_SIZE
+    n_layers = NUM_LAYERS
 
-    seq_len_att = 10
+    seq_len_att = SEQ_LEN_ATT
 
-    seq_len_cnn = 21
-    embedding_cnn = 200
-    kernel_size = 2
-    out_channels = 600
-    num_layers_cnn = 4
-    bottleneck = 20
+    seq_len_cnn = SEQ_LEN_CNN
+    embedding_cnn = EMBEDDING_SIZE_CNN
+    kernel_size = KERNEL_SIZE
+    out_channels = OUT_CHANNELS
+    num_layers_cnn = NUM_LAYERS_CNN
+    bottleneck = BOTTLENECK
 
     dropout = 0.
     dropout_emb = 0.
@@ -130,7 +130,7 @@ def evaluate():
             ppls.append(np.exp(loss.item()))
 
         cur_loss = np.mean(losses)
-        cur_ppl, cur_ppl_std = np.exp(cur_loss), np.std(ppls)
+        cur_ppl = np.exp(cur_loss)
         
         if args.wb: w_b.log({"Test/Loss": cur_loss, "Test/PPL": cur_ppl})
 

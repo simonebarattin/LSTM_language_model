@@ -1,6 +1,9 @@
 import torch
 from collections import defaultdict
 
+'''
+    Script to create a vocabulary of words in the train set of the PennTree Bank dataset
+'''
 class Vocabulary():
     def __init__(self):
         self.num_tokens = 0

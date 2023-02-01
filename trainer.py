@@ -2,11 +2,31 @@ import torch
 import random
 import numpy as np
 import torch.nn as nn
-import torch.nn.functional as F
 from utils import detach_hidden
 from models import *
 from lib import *
 
+'''
+    Script to perform a training step on the model.
+
+    Args:
+        mode (str)                    : defines the type of model used
+        train_ids (torch.FloatTensor) : batched sequences from the datataset's training set
+        model (nn.Module)             : model used (e.g. Vanilla LSTM)
+        optimizer (torch.optim)       : optimizer used (e.g. SGD)
+        criterion (torch.nn)          : loss function used (e.g. CrossEntropyLoss)
+        lr (float)                    : learning rate
+        batch_size (int)              : batch size
+        seq_len (int)                 : fixed length of the sequence
+        seq_len_threshold (float)     : probability of using the pre-set sequence length or half its value (used for AWD)
+        use_cuda (bool)               : use CUDA or not
+        clip_grad (float)             : value for clip gradient
+        teacher_forcing (bool)        : use Teacher Forcing or not (used for AT LSTM)
+
+    Output:
+        cur_loss (float) : loss averaged over the train set
+        cur_ppl (float)  : perplexity computed from cur_loss
+'''
 def train(mode, train_ids, model, optimizer, criterion, lr, batch_size, seq_len, seq_len_threshold, use_cuda, clip_grad, teacher_forcing=True):
     hidden = model.init_hidden(batch_size, use_cuda) if mode != 'cnn' else None
     losses = []
@@ -43,7 +63,7 @@ def train(mode, train_ids, model, optimizer, criterion, lr, batch_size, seq_len,
 
         optimizer.zero_grad()
         if mode == 'cnn':
-            output, loss = model(x)
+            output, loss = model(x, y)
         elif mode == 'attention':
             if i == 0:
                 inp = x
@@ -75,6 +95,23 @@ def train(mode, train_ids, model, optimizer, criterion, lr, batch_size, seq_len,
 
     return cur_loss, cur_ppl
 
+'''
+    Script to perform a validation step on the model.
+
+    Args:
+        mode (str)                    : defines the type of model used
+        valid_ids (torch.FloatTensor) : batched sequences from the datataset's training set
+        model (nn.Module)             : model used (e.g. Vanilla LSTM)
+        optimizer (torch.optim)       : optimizer used (e.g. SGD)
+        criterion (torch.nn)          : loss function used (e.g. CrossEntropyLoss)
+        batch_size (int)              : batch size
+        seq_len (int)                 : fixed length of the sequence
+        use_cuda (bool)               : use CUDA or not
+
+    Output:
+        cur_loss (float) : loss averaged over the validation set
+        cur_ppl (float)  : perplexity computed from cur_loss
+'''
 def valid(mode, valid_ids, model, criterion, batch_size, seq_len, use_cuda):
     hidden = model.init_hidden(batch_size, use_cuda) if mode != 'cnn' else None
     losses = []
@@ -101,7 +138,7 @@ def valid(mode, valid_ids, model, criterion, batch_size, seq_len, use_cuda):
 
                 loss = criterion(output, y)
             else:
-                output, loss = model(x)
+                output, loss = model(x, y)
             
             cur_ppl = np.exp(loss.item())
 

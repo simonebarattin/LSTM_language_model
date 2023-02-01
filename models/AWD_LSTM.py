@@ -2,15 +2,22 @@ import torch
 import math
 import torch.nn as nn
 
-class WeightDrop(nn.Module):
-    '''
-        DropConnect on recurrent hidden to hidden weight matrices [1].
-        The code used was implemented in https://github.com/salesforce/awd-lstm-lm
+'''
+    Script implementing DropConnect on recurrent hidden to hidden weight matrices [1]. The code used was implemented in [2]
 
-        References:
-            [1] Merity et al. "Regularizing and Optimizing LSTM Language Models"
-                ICLR 2018.
-    '''
+    Args:
+        module (nn.LSMT) : module to regularize
+        weights (list)   : list of weights names
+        dropout (float)  : value of the dropout
+
+    Output:
+        output (torch.FloatTensor) : output of the registered module (e.g. LSTM)
+
+    References:
+        [1] Merity et al. "Regularizing and Optimizing LSTM Language Models" ICLR 2018.
+        [2] https://github.com/salesforce/awd-lstm-lm
+'''
+class WeightDrop(nn.Module):
     def __init__(self, module, weights, dropout):
         super(WeightDrop, self).__init__()
         self.module = module
@@ -33,17 +40,21 @@ class WeightDrop(nn.Module):
     def forward(self, *args):
         self._setweight()
         self.module.flatten_parameters()
-        return self.module.forward(*args)
+        output = self.module.forward(*args)
+        return output
 
+'''
+    Selects a unique dropout mask for different samples, which stays the same within the forward and backward pass [1]. This is used by dropout input, hidden
+    and simple dropout. The code used was implemented in [2]
+
+    Output:
+        x (torch.FloatTensor) : masked version of the input x
+
+    References:
+        [1] Merity et al. "Regularizing and Optimizing LSTM Language Models" ICLR 2018.
+        [2] https://github.com/salesforce/awd-lstm-lm
+'''
 class LockedDropout(nn.Module):
-    '''
-        Selects a unique dropout mask for different samples, which stays the same within the forward and backward pass [1].
-        The code used was implemented in https://github.com/salesforce/awd-lstm-lm
-
-        References:
-            [1] Merity et al. "Regularizing and Optimizing LSTM Language Models"
-                ICLR 2018.
-    '''
     def __init__(self):
         super(LockedDropout, self).__init__()
 
@@ -57,15 +68,17 @@ class LockedDropout(nn.Module):
         else:
             return x
 
-class EmbeddDropout(nn.Module):
-    '''
-        Applies a dropout mask directly at embedding weight matrix [1]. 
-        The code used was implemented in https://github.com/salesforce/awd-lstm-lm
+'''
+    Applies a dropout mask directly at embedding weight matrix [1]. The code used was implemented in [2]
 
-        References:
-            [1] Merity et al. "Regularizing and Optimizing LSTM Language Models"
-                ICLR 2018.
-    '''
+    Output:
+        x (nn.functional.embedding) : new embedding with weights masked.
+
+    References:
+        [1] Merity et al. "Regularizing and Optimizing LSTM Language Models" ICLR 2018.
+        [2] https://github.com/salesforce/awd-lstm-lm
+'''
+class EmbeddDropout(nn.Module):
     def __init__(self, dropout):
         super(EmbeddDropout, self).__init__()
         self.dropout = dropout
@@ -79,27 +92,30 @@ class EmbeddDropout(nn.Module):
         x = nn.functional.embedding(words, masked_emb, padding_idx, embedding.max_norm, embedding.norm_type, embedding.scale_grad_by_freq, embedding.sparse)
         return x
 
+'''
+    A script implementing the regularization techniques used in [1].
+
+    Args:
+        vocab_size      : size of the vocabulary (e.g. 10000 for Penn-Tree Bank dataset) used to create the word embeddings and the output of the
+                            FC layer
+        embedding_dim   : dimensionality of the embedding (defualt=400)
+        hidden_dim      : dimensionality of the hidden layer output (default=1150)
+        n_layers        : number of LSTM layers
+        dropout         : probability of dropout at word level on the output before the FC layer
+        dropoute        : probability of dropout on the embedding weight matrix
+        dropoutw        : probability of dropout on the hidden-to-hidden weight matrix
+        dropouti        : probability of dropout at word level on input to the LSTM model
+        dropouth        : probability of dropout at word level between LSTM layers
+        tweights        : tye weights
+
+    Output:
+        out (torch.FloatTensor) : logits of the FC layer (not normalized)
+        new_h (tuple)           : hidden state and cell state of the model
+
+    References:
+        [1] Merity et al. "Regularizing and Optimizing LSTM Language Models" ICLR 2018.
+'''
 class AWDLSTM(nn.Module):
-    '''
-        A script implementing the regularization techniques used in [1].
-
-        Inputs:
-            vocab_size      : size of the vocabulary (e.g. 10000 for Penn-Tree Bank dataset) used to create the word embeddings and the output of the
-                              FC layer
-            embedding_dim   : dimensionality of the embedding (defualt=400)
-            hidden_dim      : dimensionality of the hidden layer output (default=1150)
-            n_layers        : number of LSTM layers
-            dropout         : probability of dropout at word level on the output before the FC layer
-            dropoute        : probability of dropout on the embedding weight matrix
-            dropoutw        : probability of dropout on the hidden-to-hidden weight matrix
-            dropouti        : probability of dropout at word level on input to the LSTM model
-            dropouth        : probability of dropout at word level between LSTM layers
-            tweights        : tye weights
-
-        References:
-            [1] Merity et al. "Regularizing and Optimizing LSTM Language Models"
-                ICLR 2018.
-    '''
     def __init__(self, vocab_size, embedding_dim, hidden_dim, n_layers, dropout, dropoute, dropoutw, dropouti, dropouth, tweights=True):
         super(AWDLSTM, self).__init__()
         self.vocab_size = vocab_size 
@@ -169,7 +185,9 @@ class AWDLSTM(nn.Module):
         return out, new_h
 
     def init_hidden(self, batch_size, use_cuda):
-        # create 2 new zero tensors of size n_layers * batch_size * hidden_dim
+        '''
+            Initializes weights to 0
+        '''
         weights = next(self.parameters()).data
         if use_cuda:
             hidden = [(weights.new(1, batch_size, self.hidden_dim if i!=self.n_layers-1 else (self.embedding_dim if self.tweights else self.hidden_dim)).zero_().cuda(), 

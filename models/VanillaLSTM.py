@@ -1,10 +1,18 @@
-import torch
 import torch.nn as nn
 
 '''
-    TODO add description
-'''
+    Script with the implementation of a Vanilla LSTM without additional mechanisms.
 
+    Args:
+        vocab_size (int)        : size of the vocabulary, i.e. number of words in the vocabulary
+        embedding_dim (int)    : size of the embedding
+        hidden_dim (int)       : size of the hidden dimension
+        num_layers (int)        : number of LSTM layers
+
+    Output:
+        x (torch.FloatTensor) : logits of the FC output (not normalized)
+        h (tuple)             : tuple with hidden state and cell state of the LSTM
+'''
 class VanillaLSTM(nn.Module):
     def __init__(self, vocab_size, embedding_dim, hidden_dim, num_layers):
         super(VanillaLSTM, self).__init__()
@@ -18,13 +26,11 @@ class VanillaLSTM(nn.Module):
         self.fc = nn.Linear(hidden_dim, vocab_size)
     
     def forward(self, x, h):
-        b_s = x.shape[0]
         x = self.embedding(x)    
 
         x, h = self.model(x)
         x = x.contiguous().view(-1, self.hidden_dim)
         x = self.fc(x)
-        # x = x.view(b_s, -1, self.vocab_size)
         return x, h
 
     def detach_h(self, h):
@@ -34,7 +40,9 @@ class VanillaLSTM(nn.Module):
         return hidden, cell
 
     def init_hidden(self, batch_size, use_cuda):
-        # create 2 new zero tensors of size n_layers * batch_size * hidden_dim
+        '''
+            Initializes weights to 0
+        '''
         weights = next(self.parameters()).data
         if use_cuda:
             hidden = (weights.new(self.num_layers, batch_size, self.hidden_dim).zero_().cuda(), 

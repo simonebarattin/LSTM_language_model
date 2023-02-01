@@ -13,11 +13,17 @@ def load_data_tokenize(path):
     return tokens
 
 def save_model(model, path):
+    '''
+        Script to save the model given the path where to save it
+    '''
     torch.save({
         "state_dict": model.state_dict()
     }, path)
 
 def detach_hidden(hidden):
+    '''
+        Script to detach the hidden state to prevent the backward step to reach the beginning of the text
+    '''
     if len(hidden) > 2:
         detached = []
         for h in hidden:
@@ -27,6 +33,9 @@ def detach_hidden(hidden):
     return detached
 
 def concat_name(model, asgd, clip_gradient, tye_weights, dropout, dropout_emb, dropout_wgt, dropout_inp, dropout_hid):
+    '''
+        Utility script to generate the name of the model weight given the regularizations used
+    '''
     name = model
     if asgd:
         name += "_asgd"

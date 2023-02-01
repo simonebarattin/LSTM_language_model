@@ -144,9 +144,9 @@ def main():
         models.append((name, AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
                                             dropout_inp, dropout_hid, tye_weights)))
     if args.attention:
-        models.append(("Attention LSTM", AT_LSTM(embedding_size, hidden_size, len(vocab), num_layers=1)))
+        models.append(("attention-lstm", AT_LSTM(embedding_size, hidden_size, len(vocab), num_layers=1)))
     if args.cnn:
-        models.append(("Gated CNN LM", CNN_LM(len(vocab), embedding_cnn, kernel_size, out_channels, num_layers_cnn, bottleneck)))
+        models.append(("gated-cnn", CNN_LM(len(vocab), embedding_cnn, kernel_size, out_channels, num_layers_cnn, bottleneck)))
 
     criterion = nn.CrossEntropyLoss() # NO WEIGHTS
 

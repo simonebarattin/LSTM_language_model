@@ -4,11 +4,29 @@ sys.path.append('..')
 
 import torch
 import argparse
-import os.path as osp
 from lib import *
 from models import *
 from utils import load_data_tokenize
 
+'''
+    Script that, given a pre-trained model, tests its ability to generate text given a prompt (in this case 'the' it's the prompt). The generation process uses
+    different temperatures (check [1] for a simple explanation on temperature). The generation continues unitl the '<eos>' token is generated or the maximum sequence length is reached.
+
+    Reference:
+        [1] https://lukesalamone.github.io/posts/what-is-temperature/
+
+    Args:
+        prompt (str)        : starting point of the generation
+        max_seq_len (int)   : maximum length of the generated sequence
+        temperature (float) : temperature value
+        model (nn.Module)   : pre-trained model
+        vocab (Vocabulary)  : vocabulary of words
+        use_cuda (bool)     : use CUDA or not
+        seed (int)          : set generation seed
+
+    Returns:
+        tokens (list)       : list of tokens
+'''
 def generate(prompt, max_seq_len, temperature, model, vocab, use_cuda, seed=None):
     if seed is not None:
         torch.manual_seed(seed)
@@ -36,6 +54,13 @@ def generate(prompt, max_seq_len, temperature, model, vocab, use_cuda, seed=None
     tokens = [vocab.idx2word[i] for i in indices]
     return tokens
 
+'''
+    Main script to test the text generation abilities of a pre-trained model.
+
+    Usage example:
+        python evaluate/inference.py --weight models/model_weights/vanilla-lstm.pth --cuda
+
+'''
 def main():
     parser = argparse.ArgumentParser(description="Script to use a pre-trained model to generate text given a prompt")
     parser.add_argument('--weight', default='vanilla-lstm.pth', help="Path to the pth save file of the model to use.")
@@ -82,7 +107,7 @@ def main():
     model_percs = weight_filename.split('.')[0].split('_')
     if model_percs[0] == 'vanilla-lstm':
         model = VanillaLSTM(len(vocab), embedding_size, embedding_size, num_layers=1)
-        mode = 'vanilla'
+        # mode = 'vanilla'
     elif model_percs[0] == 'awd-lstm':
         if 'tyeweights' in model_percs:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
@@ -90,13 +115,13 @@ def main():
         else:
             model = AWDLSTM(len(vocab), embedding_size, hidden_size, n_layers, dropout, dropout_emb, dropout_wgt, 
                                             dropout_inp, dropout_hid, tweights=False)
-        mode = 'awd'
-    elif model_percs[0] == 'Attention LSTM':
+        # mode = 'awd'
+    elif model_percs[0] == 'attention-lstm':
         model = AT_LSTM(embedding_size, hidden_size, len(vocab), num_layers=1)
-        mode = 'attention'
+        # mode = 'attention'
     else:
         model = CNN_LM(len(vocab), embedding_cnn, kernel_size, out_channels, num_layers_cnn, bottleneck)
-        mode = 'cnn'
+        # mode = 'cnn'
     model.load_state_dict(checkpoint['state_dict'])
 
     prompt = 'the'
