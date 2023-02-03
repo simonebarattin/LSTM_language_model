@@ -12,7 +12,7 @@ $ source language_modeling/bin/activate
 (language_modeling) $ pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu116
 ```
 
-## Running the trainig script
+## Running the training script
 After installing the reauired packages, you can start training one of the language models with the following command:
 ```
 (language_modeling) $ python main.py --baseline --cuda --wb
