@@ -45,7 +45,7 @@ SEQ_LEN_AWD_VANILLA = 70
 LR_AWD = 30
 
 # Attention LSTM specific
-SEQ_LEN_ATT = 10
+SEQ_LEN_ATT = 5
 TEACHER_FORCING_P = 0.5
 
 # Gated CNN specific

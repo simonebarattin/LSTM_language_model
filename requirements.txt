@@ -1,2 +1,5 @@
 wandb
 scikit-learn
+matplotlib
+numpy 
+scipy

@@ -130,5 +130,6 @@ dmypy.json
 runs/*
 
 *.pth
+*.png
 language_modeling/*
 wandb/*
